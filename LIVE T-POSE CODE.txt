@@ -1,0 +1,91 @@
+from ultralytics import YOLO
+import cv2
+import numpy as np
+
+model = YOLO("yolov8n-pose.pt") 
+
+# Function to calculate angle between 3 points
+def calculate_angle(a, b, c):
+    a = np.array(a)
+    b = np.array(b)
+    c = np.array(c)
+    
+    ba = a - b
+    bc = c - b
+
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+    return np.degrees(angle)
+
+# Function to determine T-POSE
+def detect_t_pose(keypoints):
+    try:
+        # Arm angles (shoulder is the vertex)
+        left_arm_angle = calculate_angle(keypoints[7], keypoints[5], keypoints[11])  # Elbow-Shoulder-Hip
+        right_arm_angle = calculate_angle(keypoints[8], keypoints[6], keypoints[12])
+
+        # Arm horizontal check (Y-values should be close)
+        left_y_diff = abs(keypoints[5][1] - keypoints[9][1])  # Left shoulder vs wrist
+        right_y_diff = abs(keypoints[6][1] - keypoints[10][1])  # Right shoulder vs wrist
+
+        # Leg angles (knee is the vertex)
+        left_leg_angle = calculate_angle(keypoints[11], keypoints[13], keypoints[15])  # Hip-Knee-Ankle
+        right_leg_angle = calculate_angle(keypoints[12], keypoints[14], keypoints[16])
+
+        # Conditions
+        is_arm_aligned = (
+            70 < left_arm_angle < 110 and
+            70 < right_arm_angle < 110 and
+            left_y_diff < 30 and
+            right_y_diff < 30
+        )
+
+        is_leg_straight = (
+            160 < left_leg_angle < 200 and
+            160 < right_leg_angle < 200
+        )
+
+        if is_arm_aligned and is_leg_straight:
+            return "T-POSE"
+        else:
+            return "Unidentified"
+    except Exception as e:
+        return "Keypoint Error"
+
+# Live pose detection
+def process_webcam():
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        print("Error: Cannot open webcam.")
+        return
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to grab frame.")
+            break
+
+        results = model(frame)
+
+        for result in results:
+            if result.keypoints is not None:
+                keypoints = result.keypoints.xy[0].cpu().numpy()
+                pose_label = detect_t_pose(keypoints)
+
+                # Annotate
+                annotated = result.plot()
+                cv2.putText(annotated, pose_label, (30, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+                cv2.imshow("Live Pose Detection", annotated)
+            else:
+                cv2.imshow("Live Pose Detection", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if _name_ == "_main_":
+    process_webcam()

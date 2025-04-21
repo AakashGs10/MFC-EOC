@@ -1,0 +1,86 @@
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import time
+
+model = YOLO("yolov8n-pose.pt")  
+# Per-arm counters and states
+left_count, right_count = 0, 0
+left_stage, right_stage = "down", "down"
+last_left_time, last_right_time = 0, 0
+cooldown = 0.5  # seconds to wait between reps
+
+def calculate_angle(a, b, c):
+    a, b, c = np.array(a), np.array(b), np.array(c)
+    ba = a - b
+    bc = c - b
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+    return np.degrees(angle)
+
+def detect_curls(keypoints):
+    global left_count, right_count, left_stage, right_stage
+    global last_left_time, last_right_time
+
+    current_time = time.time()
+
+    left_angle = calculate_angle(keypoints[5], keypoints[7], keypoints[9])   # L-shoulder, L-elbow, L-wrist
+    right_angle = calculate_angle(keypoints[6], keypoints[8], keypoints[10]) # R-shoulder, R-elbow, R-wrist
+
+    # LEFT ARM logic
+    if left_angle < 60 and left_stage == "down":
+        left_stage = "up"
+    elif left_angle > 150 and left_stage == "up":
+        if current_time - last_left_time > cooldown:
+            left_stage = "down"
+            left_count += 1
+            last_left_time = current_time
+
+    # RIGHT ARM logic
+    if right_angle < 60 and right_stage == "down":
+        right_stage = "up"
+    elif right_angle > 150 and right_stage == "up":
+        if current_time - last_right_time > cooldown:
+            right_stage = "down"
+            right_count += 1
+            last_right_time = current_time
+
+    return int(left_angle), int(right_angle), f"Left: {left_count}", f"Right: {right_count}"
+
+def process_webcam():
+    cap = cv2.VideoCapture(0)
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+
+        results = model(frame)
+
+        for result in results:
+            if result.keypoints is not None and len(result.keypoints.xy) > 0:
+                keypoints = result.keypoints.xy[0].cpu().numpy()
+                l_ang, r_ang, l_label, r_label = detect_curls(keypoints)
+                annotated = result.plot()
+
+                # Show angles at elbows
+                cv2.putText(annotated, f"{l_ang}°", tuple(keypoints[7].astype(int)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 100), 2)
+                cv2.putText(annotated, f"{r_ang}°", tuple(keypoints[8].astype(int)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 255, 200), 2)
+
+                # Display counts
+                cv2.putText(annotated, l_label, (30, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 100, 100), 3)
+                cv2.putText(annotated, r_label, (30, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (100, 255, 100), 3)
+
+                cv2.imshow("Curl Counter", annotated)
+            else:
+                cv2.imshow("Curl Counter", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'): break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if _name_ == "_main_":
+    process_webcam()
