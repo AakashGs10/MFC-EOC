@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Morse Code Live</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: lightgray;
+      color: darkgray;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      color: darkslategray;
+      font-size: 36px;
+      margin-bottom: 10px;
+    }
+
+    .status {
+      margin-bottom: 30px;
+      font-weight: bold;
+      font-size: 18px;
+    }
+
+    .status.connected {
+      color: green;
+    }
+
+    .status.disconnected {
+      color: red;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 30px;
+      margin-top: 20px;
+    }
+
+    .box {
+      width: 100%;
+      max-width: 400px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      text-align: left;
+      transition: 0.3s ease;
+    }
+
+    .box h2 {
+      color: darkslategray;
+      margin-bottom: 10px;
+      font-size: 22px;
+    }
+
+    .box p {
+      font-size: 24px;
+      min-height: 60px;
+      word-wrap: break-word;
+      margin: 0;
+    }
+
+    .morse-output {
+      color: dodgerblue;
+      font-weight: bold;
+    }
+
+    .text-output {
+      color: mediumseagreen;
+      font-weight: bold;
+    }
+
+    button {
+      padding: 12px 24px;
+      margin-top: 40px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      background: firebrick;
+      color: white;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    button:hover {
+      background: green;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔴 Live Morse Code Translator</h1>
+  <div class="status disconnected" id="status">Disconnected</div>
+
+  <div class="container">
+    <div class="box">
+      <h2>Morse Code</h2>
+      <p id="morse" class="morse-output"></p>
+    </div>
+    <div class="box">
+      <h2>Translated Text</h2>
+      <p id="text" class="text-output"></p>
+    </div>
+  </div>
+
+  <button onclick="clearDisplay()">Reset</button>
+
+  <script>
+    const morseElement = document.getElementById("morse");
+    const textElement = document.getElementById("text");
+    const statusElement = document.getElementById("status");
+
+    let ws;
+
+    function connectWebSocket() {
+      ws = new WebSocket("ws://192.168.4.1:81/");
+
+      ws.onopen = () => {
+        statusElement.textContent = "Connected";
+        statusElement.classList.remove("disconnected");
+        statusElement.classList.add("connected");
+      };
+
+      ws.onmessage = (event) => {
+        const [type, value] = event.data.split(":");
+
+        if (type === "morse") {
+          morseElement.innerText = value || "...";
+        } else if (type === "text") {
+          appendText(value);
+        }
+      };
+
+      ws.onclose = () => {
+        statusElement.textContent = "Disconnected";
+        statusElement.classList.remove("connected");
+        statusElement.classList.add("disconnected");
+
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket Error:", err);
+      };
+    }
+
+    function clearDisplay() {
+      morseElement.innerText = "...";
+      textElement.innerText = "...";
+    }
+
+    function appendText(char) {
+      if (char === "SPACE") {
+        textElement.innerHTML += "&nbsp;";
+      } else {
+        const span = document.createElement("span");
+        span.textContent = char;
+        textElement.appendChild(span);
+      }
+    }
+
+    connectWebSocket();
+  </script>
+</body>
+</html>
